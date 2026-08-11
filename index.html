@@ -627,9 +627,6 @@
       background:var(--surface-3);border:1px solid var(--line-strong);
       font-size:12px;font-weight:820;color:var(--muted);
     }
-    .account-guest svg{
-      width:19px;height:19px;stroke-width:1.8;
-    }
     .rank-avatar{
       width:30px;height:30px;border-radius:10px;object-fit:cover;
       border:1px solid var(--line);
@@ -654,6 +651,24 @@
     }
     .identity-name{font-weight:800}
     .identity-email{font-size:11px;color:var(--muted);margin-top:3px}
+    .switch-account-btn{
+      width:36px;height:36px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:var(--surface-3);
+      color:var(--muted);
+      display:grid;place-items:center;
+      flex:0 0 auto;
+      transition:.15s ease;
+    }
+    .switch-account-btn:hover{
+      background:var(--accent-soft);
+      border-color:rgba(122,30,44,.26);
+      color:var(--text);
+    }
+    .switch-account-btn svg{
+      width:16px;height:16px;stroke-width:1.8;
+    }
     .identity-options{display:grid;gap:9px;margin-top:14px}
     .identity-option{
       width:100%;min-height:54px;border:1px solid var(--line);background:var(--surface);
@@ -2114,40 +2129,6 @@
     .login-sheet{
       text-align:center;
       padding-top:28px!important;
-      position:relative;
-    }
-    .sheet-close{
-      position:absolute;
-      top:14px;right:14px;
-      width:36px;height:36px;
-      border-radius:12px;
-      border:1px solid var(--line);
-      background:var(--surface);
-      color:var(--muted);
-      display:grid;place-items:center;
-      transition:.15s ease;
-    }
-    .sheet-close:hover{
-      color:var(--text);
-      border-color:var(--line-strong);
-    }
-    .sheet-close svg{
-      width:16px;height:16px;stroke-width:2;
-    }
-    .login-skip{
-      width:100%;
-      margin-top:14px;
-      min-height:46px;
-      border:0;
-      background:transparent;
-      color:var(--muted);
-      font-size:13px;
-      font-weight:760;
-      border-radius:14px;
-    }
-    .login-skip:hover{
-      color:var(--text);
-      background:var(--surface);
     }
     .login-logo{
       width:64px;height:64px;margin:0 auto 18px;
@@ -2379,14 +2360,8 @@
   
   
 
-  <div id="loginModal" class="identity-modal" onclick="loginModalBackdrop(event)">
+  <div id="loginModal" class="identity-modal">
     <div class="identity-sheet login-sheet">
-      <button class="sheet-close" onclick="hideLogin()" aria-label="Fechar" title="Fechar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M18 6L6 18M6 6l12 12"/>
-        </svg>
-      </button>
-
       <div class="login-logo"><span class="logo"></span></div>
       <div class="modal-title">All-in</div>
       <div class="modal-sub">Entre com sua conta Google para acessar a mesa.</div>
@@ -2399,8 +2374,6 @@
 
       <div id="googleSignInButton" class="google-signin-slot"></div>
       <div id="loginStatus" class="login-status"></div>
-
-      <button class="login-skip" onclick="hideLogin()">Continuar sem entrar</button>
     </div>
   </div>
 
@@ -2437,6 +2410,31 @@
         <button class="save" style="width:100%;margin-top:10px" onclick="finishNewOnboarding()">
           Criar meu jogador
         </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="unlinkPlayerModal" class="confirm-modal" onclick="unlinkModalBackdrop(event)">
+    <div class="confirm-sheet">
+      <div class="handle"></div>
+
+      <div class="confirm-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M10 17l5-5-5-5"/>
+          <path d="M15 12H3"/>
+          <path d="M21 19V5a2 2 0 0 0-2-2h-6"/>
+        </svg>
+      </div>
+
+      <div class="confirm-title">Desvincular jogador?</div>
+      <div class="confirm-text">
+        Você voltará para a escolha de jogador. Sua conta Google continuará
+        conectada e todo o histórico será mantido.
+      </div>
+
+      <div class="confirm-actions">
+        <button class="secondary" onclick="closeUnlinkPlayer()">Cancelar</button>
+        <button id="confirmUnlinkBtn" class="danger-btn" onclick="confirmUnlinkPlayer()">Desvincular</button>
       </div>
     </div>
   </div>
@@ -2561,12 +2559,12 @@
     } finally {
       await configPromise;
       // Só agora a verificação terminou: liberamos login ou onboarding.
-      applyAuthGate();
+      applyAuthState();
     }
   }
 
-  // Carrega a sessão + dados do app. Não abre nenhuma modal: quem decide é applyAuthGate.
-  // Sem sessão o backend devolve a visão pública anonimizada, não 401.
+  // Carrega a sessão + dados do app. Não abre nenhuma modal: quem decide é
+  // applyAuthState. Sem sessão o backend responde 401.
   async function loadSession() {
     const requestId = ++authRequestId;
 
@@ -2578,19 +2576,20 @@
     } catch (err) {
       if (requestId !== authRequestId) return;
 
-      // Erro de rede/servidor: não sabemos o estado, então não mostramos onboarding.
       auth = { loading: false, authenticated: false, onboardingRequired: false };
       resetState();
       renderAll();
-      showError(err);
+
+      // 401 é o caminho normal de quem não entrou: cai na tela de login.
+      if (err.status !== 401) showError(err);
     }
   }
 
-  // Aplica um payload de /api/app-data (vindo de qualquer endpoint) ao estado + gate.
+  // Aplica um payload de /api/app-data (vindo de qualquer endpoint) ao estado.
   function applyAppData(data, options = {}) {
     state = data;
 
-    const authenticated = !data.anonymous && !!data.currentUser;
+    const authenticated = !!data.currentUser;
     auth = {
       loading: false,
       authenticated,
@@ -2598,10 +2597,17 @@
     };
 
     renderAll();
-    if (!options.silent) applyAuthGate();
+    if (!options.silent) applyAuthState();
   }
 
-  function applyAuthGate() {
+  // Único lugar que decide qual camada da UI aparece. Os quatro estados são
+  // mutuamente exclusivos, então nenhuma modal abre fora daqui.
+  //
+  //   AUTH_LOADING           -> só o splash
+  //   UNAUTHENTICATED        -> só o login
+  //   AUTHENTICATED_UNLINKED -> só o onboarding
+  //   AUTHENTICATED_LINKED   -> o app
+  function applyAuthState() {
     const gate = document.getElementById('authGate');
 
     gate.hidden = !auth.loading;
@@ -2612,9 +2618,9 @@
       return;
     }
 
-    // Visitante anônimo navega livremente: o login é opt-in pelo menu do avatar.
     if (!auth.authenticated) {
       closeIdentityModal();
+      showLogin();
       return;
     }
 
@@ -2688,7 +2694,7 @@
       });
       status.textContent = '';
       await loadSession();
-      applyAuthGate();
+      applyAuthState();
     } catch (err) {
       status.textContent = err.message;
       showError(err);
@@ -2705,26 +2711,10 @@
     renderPlayerChecks();
   }
 
-  const GUEST_AVATAR = `
-    <div class="account-fallback account-guest">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-        <circle cx="12" cy="7" r="4"/>
-      </svg>
-    </div>`;
-
-  const SIGN_IN_ITEM = `
-    <button class="profile-menu-item" onclick="openLoginFromMenu()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-        <path d="M10 17l5-5-5-5"/>
-        <path d="M15 12H3"/>
-        <path d="M21 19V5a2 2 0 0 0-2-2h-6"/>
-      </svg>
-      <span>Entrar com Google</span>
-    </button>`;
-
-  const SIGN_OUT_ITEM = `
-    <button class="profile-menu-item profile-menu-logout" onclick="logoutApp()">
+  // "Sair" desvincula o jogador; a sessão Google continua ativa. Trocar de
+  // conta fica no lápis do onboarding, que é o único logout de verdade.
+  const UNLINK_ITEM = `
+    <button class="profile-menu-item profile-menu-logout" onclick="askUnlinkPlayer()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
         <path d="M10 17l5-5-5-5"/>
         <path d="M15 12H3"/>
@@ -2739,25 +2729,10 @@
     const menuHeader = document.getElementById('profileMenuHeader');
     const menuActions = document.getElementById('profileMenuActions');
 
-    // Visitante anônimo também tem avatar e menu: é por ali que ele entra.
     if (!u) {
-      el.innerHTML = `
-        <div class="account-copy">
-          <div class="account-name">Visitante</div>
-          <div class="account-role">Não conectado</div>
-        </div>
-        ${GUEST_AVATAR}
-      `;
-
-      menuHeader.innerHTML = `
-        ${GUEST_AVATAR}
-        <div style="min-width:0">
-          <div class="profile-menu-name">Visitante</div>
-          <div class="profile-menu-email">Entre para registrar partidas</div>
-        </div>
-      `;
-
-      menuActions.innerHTML = SIGN_IN_ITEM;
+      el.innerHTML = '';
+      menuHeader.innerHTML = '';
+      menuActions.innerHTML = '';
       document.body.classList.remove('is-admin');
       return;
     }
@@ -2785,17 +2760,8 @@
       </div>
     `;
 
-    menuActions.innerHTML = SIGN_OUT_ITEM;
+    menuActions.innerHTML = UNLINK_ITEM;
     document.body.classList.toggle('is-admin', !!u.isAdmin);
-  }
-
-  function openLoginFromMenu() {
-    closeProfileMenu();
-    showLogin();
-  }
-
-  function loginModalBackdrop(event) {
-    if (event.target.id === 'loginModal') hideLogin();
   }
 
   function closeIdentityModal() {
@@ -2819,10 +2785,20 @@
              onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
            <div class="account-fallback" style="display:none">${esc(initials(u.googleName || '?'))}</div>`
         : `<div class="account-fallback">${esc(initials(u.googleName || '?'))}</div>`}
-      <div style="min-width:0">
+      <div style="min-width:0;flex:1">
         <div class="identity-name">${esc(u.googleName || 'Conta Google')}</div>
         <div class="identity-email">${esc(u.email || '')}</div>
       </div>
+      <button
+        class="switch-account-btn"
+        onclick="switchGoogleAccount()"
+        aria-label="Trocar conta Google"
+        title="Trocar conta Google">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M12 20h9"/>
+          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+        </svg>
+      </button>
     `;
 
     const select = document.getElementById('identityPlayerSelect');
@@ -2975,9 +2951,7 @@
   function renderPlayers() {
     const el = document.getElementById('playersList');
     if (!state.players.length) {
-      el.innerHTML = auth.authenticated
-        ? `<div class="empty">Cadastre o primeiro jogador.</div>`
-        : `<div class="empty">Entre com sua conta Google para ver os jogadores da mesa.</div>`;
+      el.innerHTML = `<div class="empty">Cadastre o primeiro jogador.</div>`;
       return;
     }
 
@@ -3061,14 +3035,9 @@
   }
 
   function openNewGame() {
-    if (!auth.authenticated) {
-      toast('Entre para registrar uma partida.');
-      showLogin();
-      return;
-    }
     if (!state.currentUser?.linked) {
       toast('Configure seu perfil primeiro.');
-      applyAuthGate();
+      applyAuthState();
       return;
     }
     if (state.players.length < 2) {
@@ -3241,9 +3210,47 @@
     if (wrap && !wrap.contains(event.target)) closeProfileMenu();
   });
 
-  async function logoutApp() {
+  // "Sair" do menu: desfaz o vínculo com o jogador, sem encerrar a sessão Google.
+  function askUnlinkPlayer() {
     closeProfileMenu();
+    document.getElementById('unlinkPlayerModal').classList.add('open');
+  }
 
+  function closeUnlinkPlayer() {
+    document.getElementById('unlinkPlayerModal').classList.remove('open');
+  }
+
+  function unlinkModalBackdrop(event) {
+    if (event.target.id === 'unlinkPlayerModal') closeUnlinkPlayer();
+  }
+
+  async function confirmUnlinkPlayer() {
+    const btn = document.getElementById('confirmUnlinkBtn');
+    if (btn.disabled) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Desvinculando...';
+
+    try {
+      // O backend devolve o app-data já sem o vínculo: o onboarding abre sozinho.
+      applyAppData(await request('/api/unlink-player', {
+        method: 'POST',
+        body: JSON.stringify({})
+      }));
+
+      closeUnlinkPlayer();
+      showView('dashboard');
+      toast('Jogador desvinculado.');
+    } catch (err) {
+      showError(err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Desvincular';
+    }
+  }
+
+  // Lápis do onboarding: único ponto do fluxo que encerra a sessão de verdade.
+  async function switchGoogleAccount() {
     try {
       await request('/api/logout', {
         method: 'POST',
@@ -3251,17 +3258,16 @@
       });
     } catch (_) {}
 
-    // Invalida qualquer carregamento em voo para não reabrir o onboarding depois do logout.
+    // Sem isso o Google reentra sozinho com a mesma conta.
+    try { window.google?.accounts?.id?.disableAutoSelect(); } catch (_) {}
+
+    // Invalida carregamentos em voo para o onboarding não reabrir após o logout.
     authRequestId++;
     auth = { loading: false, authenticated: false, onboardingRequired: false };
     resetState();
     renderAll();
-    applyAuthGate();
+    applyAuthState();
     showView('dashboard');
-
-    // Recarrega como visitante para o ranking continuar visível.
-    await loadSession();
-    toast('Você saiu da conta.');
   }
 
   function showView(name) {
