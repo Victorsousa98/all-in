@@ -627,6 +627,9 @@
       background:var(--surface-3);border:1px solid var(--line-strong);
       font-size:12px;font-weight:820;color:var(--muted);
     }
+    .account-guest svg{
+      width:19px;height:19px;stroke-width:1.8;
+    }
     .rank-avatar{
       width:30px;height:30px;border-radius:10px;object-fit:cover;
       border:1px solid var(--line);
@@ -2111,6 +2114,40 @@
     .login-sheet{
       text-align:center;
       padding-top:28px!important;
+      position:relative;
+    }
+    .sheet-close{
+      position:absolute;
+      top:14px;right:14px;
+      width:36px;height:36px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:var(--surface);
+      color:var(--muted);
+      display:grid;place-items:center;
+      transition:.15s ease;
+    }
+    .sheet-close:hover{
+      color:var(--text);
+      border-color:var(--line-strong);
+    }
+    .sheet-close svg{
+      width:16px;height:16px;stroke-width:2;
+    }
+    .login-skip{
+      width:100%;
+      margin-top:14px;
+      min-height:46px;
+      border:0;
+      background:transparent;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:760;
+      border-radius:14px;
+    }
+    .login-skip:hover{
+      color:var(--text);
+      background:var(--surface);
     }
     .login-logo{
       width:64px;height:64px;margin:0 auto 18px;
@@ -2186,14 +2223,7 @@
           </button>
           <div id="profileMenu" class="profile-menu">
             <div id="profileMenuHeader" class="profile-menu-header"></div>
-            <button class="profile-menu-item profile-menu-logout" onclick="logoutApp()">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M10 17l5-5-5-5"/>
-                <path d="M15 12H3"/>
-                <path d="M21 19V5a2 2 0 0 0-2-2h-6"/>
-              </svg>
-              <span>Sair</span>
-            </button>
+            <div id="profileMenuActions"></div>
           </div>
         </div>
       </div>
@@ -2349,8 +2379,14 @@
   
   
 
-  <div id="loginModal" class="identity-modal">
+  <div id="loginModal" class="identity-modal" onclick="loginModalBackdrop(event)">
     <div class="identity-sheet login-sheet">
+      <button class="sheet-close" onclick="hideLogin()" aria-label="Fechar" title="Fechar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+
       <div class="login-logo"><span class="logo"></span></div>
       <div class="modal-title">All-in</div>
       <div class="modal-sub">Entre com sua conta Google para acessar a mesa.</div>
@@ -2363,6 +2399,8 @@
 
       <div id="googleSignInButton" class="google-signin-slot"></div>
       <div id="loginStatus" class="login-status"></div>
+
+      <button class="login-skip" onclick="hideLogin()">Continuar sem entrar</button>
     </div>
   </div>
 
@@ -2528,6 +2566,7 @@
   }
 
   // Carrega a sessão + dados do app. Não abre nenhuma modal: quem decide é applyAuthGate.
+  // Sem sessão o backend devolve a visão pública anonimizada, não 401.
   async function loadSession() {
     const requestId = ++authRequestId;
 
@@ -2535,56 +2574,47 @@
       const data = await request('/api/app-data');
       if (requestId !== authRequestId) return;
 
-      state = data;
-      auth = {
-        loading: false,
-        authenticated: true,
-        onboardingRequired: !state.currentUser?.linked
-      };
-      renderAll();
+      applyAppData(data, { silent: true });
     } catch (err) {
       if (requestId !== authRequestId) return;
 
-      if (err.status === 401) {
-        auth = { loading: false, authenticated: false, onboardingRequired: false };
-        resetState();
-        renderAll();
-        return;
-      }
-
       // Erro de rede/servidor: não sabemos o estado, então não mostramos onboarding.
       auth = { loading: false, authenticated: false, onboardingRequired: false };
+      resetState();
+      renderAll();
       showError(err);
     }
   }
 
   // Aplica um payload de /api/app-data (vindo de qualquer endpoint) ao estado + gate.
-  function applyAppData(data) {
+  function applyAppData(data, options = {}) {
     state = data;
+
+    const authenticated = !data.anonymous && !!data.currentUser;
     auth = {
       loading: false,
-      authenticated: true,
-      onboardingRequired: !state.currentUser?.linked
+      authenticated,
+      onboardingRequired: authenticated && !data.currentUser.linked
     };
+
     renderAll();
-    applyAuthGate();
+    if (!options.silent) applyAuthGate();
   }
 
   function applyAuthGate() {
     const gate = document.getElementById('authGate');
-    const login = document.getElementById('loginModal');
 
     gate.hidden = !auth.loading;
 
     if (auth.loading) {
-      login.classList.remove('open');
+      hideLogin();
       closeIdentityModal();
       return;
     }
 
+    // Visitante anônimo navega livremente: o login é opt-in pelo menu do avatar.
     if (!auth.authenticated) {
       closeIdentityModal();
-      showLogin();
       return;
     }
 
@@ -2675,14 +2705,60 @@
     renderPlayerChecks();
   }
 
+  const GUEST_AVATAR = `
+    <div class="account-fallback account-guest">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+      </svg>
+    </div>`;
+
+  const SIGN_IN_ITEM = `
+    <button class="profile-menu-item" onclick="openLoginFromMenu()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M10 17l5-5-5-5"/>
+        <path d="M15 12H3"/>
+        <path d="M21 19V5a2 2 0 0 0-2-2h-6"/>
+      </svg>
+      <span>Entrar com Google</span>
+    </button>`;
+
+  const SIGN_OUT_ITEM = `
+    <button class="profile-menu-item profile-menu-logout" onclick="logoutApp()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <path d="M10 17l5-5-5-5"/>
+        <path d="M15 12H3"/>
+        <path d="M21 19V5a2 2 0 0 0-2-2h-6"/>
+      </svg>
+      <span>Sair</span>
+    </button>`;
+
   function renderAccount() {
     const u = state.currentUser;
     const el = document.getElementById('account');
     const menuHeader = document.getElementById('profileMenuHeader');
+    const menuActions = document.getElementById('profileMenuActions');
 
+    // Visitante anônimo também tem avatar e menu: é por ali que ele entra.
     if (!u) {
-      el.innerHTML = '';
-      menuHeader.innerHTML = '';
+      el.innerHTML = `
+        <div class="account-copy">
+          <div class="account-name">Visitante</div>
+          <div class="account-role">Não conectado</div>
+        </div>
+        ${GUEST_AVATAR}
+      `;
+
+      menuHeader.innerHTML = `
+        ${GUEST_AVATAR}
+        <div style="min-width:0">
+          <div class="profile-menu-name">Visitante</div>
+          <div class="profile-menu-email">Entre para registrar partidas</div>
+        </div>
+      `;
+
+      menuActions.innerHTML = SIGN_IN_ITEM;
+      document.body.classList.remove('is-admin');
       return;
     }
 
@@ -2709,7 +2785,17 @@
       </div>
     `;
 
+    menuActions.innerHTML = SIGN_OUT_ITEM;
     document.body.classList.toggle('is-admin', !!u.isAdmin);
+  }
+
+  function openLoginFromMenu() {
+    closeProfileMenu();
+    showLogin();
+  }
+
+  function loginModalBackdrop(event) {
+    if (event.target.id === 'loginModal') hideLogin();
   }
 
   function closeIdentityModal() {
@@ -2889,7 +2975,9 @@
   function renderPlayers() {
     const el = document.getElementById('playersList');
     if (!state.players.length) {
-      el.innerHTML = `<div class="empty">Cadastre o primeiro jogador.</div>`;
+      el.innerHTML = auth.authenticated
+        ? `<div class="empty">Cadastre o primeiro jogador.</div>`
+        : `<div class="empty">Entre com sua conta Google para ver os jogadores da mesa.</div>`;
       return;
     }
 
@@ -2973,6 +3061,11 @@
   }
 
   function openNewGame() {
+    if (!auth.authenticated) {
+      toast('Entre para registrar uma partida.');
+      showLogin();
+      return;
+    }
     if (!state.currentUser?.linked) {
       toast('Configure seu perfil primeiro.');
       applyAuthGate();
@@ -3164,6 +3257,11 @@
     resetState();
     renderAll();
     applyAuthGate();
+    showView('dashboard');
+
+    // Recarrega como visitante para o ranking continuar visível.
+    await loadSession();
+    toast('Você saiu da conta.');
   }
 
   function showView(name) {
