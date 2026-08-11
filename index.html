@@ -2932,9 +2932,10 @@
 
   function renderPlayerChecks() {
     const area = document.getElementById('playerChecks');
+    // O value é o ID: o nome é apenas rótulo, então renomear não afeta a seleção.
     area.innerHTML = state.players.map(p => `
       <label class="player">
-        <input type="checkbox" value="${attr(p.name)}" onchange="syncWinner()">
+        <input type="checkbox" value="${attr(p.id)}" onchange="syncWinner()">
         <span>${esc(p.name)}</span>
       </label>`).join('');
     syncWinner();
@@ -2944,8 +2945,10 @@
     const selected = [...document.querySelectorAll('#playerChecks input:checked')].map(x => x.value);
     const winner = document.getElementById('winner');
     const old = winner.value;
+    const nameById = new Map(state.players.map(p => [p.id, p.name]));
+
     winner.innerHTML = `<option value="">Selecione...</option>` +
-      selected.map(name => `<option value="${attr(name)}">${esc(name)}</option>`).join('');
+      selected.map(id => `<option value="${attr(id)}">${esc(nameById.get(id) || '')}</option>`).join('');
     if (selected.includes(old)) winner.value = old;
   }
 

@@ -57,6 +57,28 @@ A API usa as abas:
 
 Se elas não existirem, são criadas automaticamente. Os cabeçalhos também são normalizados sem apagar os dados.
 
+Em `Torneios`, as colunas `Vencedor ID` (K) e `Participantes IDs` (L) são a
+referência canônica dos jogadores. `Vencedor` (D) e `Participantes` (E) guardam
+nomes apenas para leitura humana da planilha — nenhum cálculo depende deles.
+Assim, renomear um jogador não exige alterar nenhum torneio antigo.
+
+### Migrando uma planilha antiga
+
+Planilhas criadas antes das colunas K/L precisam de um backfill único:
+
+```bash
+node scripts/backfill-tournament-ids.js --dry-run   # relatório, não escreve
+node scripts/backfill-tournament-ids.js --apply     # executa
+```
+
+O script resolve cada nome em `Vencedor`/`Participantes` para o ID do jogador
+correspondente. Se algum nome não resolver, ele aborta sem escrever nada e lista
+os órfãos com sugestão de correção. Corrija a grafia em `Torneios` ou cadastre o
+jogador em `Jogadores` (pode ficar com `Ativo=false`) e rode de novo.
+
+Rodar duas vezes é seguro: linhas já migradas são ignoradas. Faça uma cópia da
+planilha antes de usar `--apply`.
+
 ## 3. Variáveis da Vercel
 
 Na Vercel:
