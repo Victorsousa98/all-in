@@ -2542,6 +2542,7 @@
   let pendingRenamePlayer = null;
   let googleClientId = '';
   let googleReadyTimer = null;
+  let googleButtonMounted = false;
 
   async function request(url, options = {}) {
     const config = {
@@ -2687,11 +2688,34 @@
     clearTimeout(googleReadyTimer);
   }
 
+  // O botão só está realmente montado se o SDK desenhou algo dentro do
+  // container e esse nó ainda faz parte do documento. Uma flag isolada mentiria
+  // caso o nó tivesse sido removido do DOM por qualquer outro caminho.
+  function isGoogleButtonMounted() {
+    if (!googleButtonMounted) return false;
+
+    const slot = document.getElementById('googleSignInButton');
+    return !!slot && slot.isConnected && slot.childElementCount > 0;
+  }
+
+  // Descarta o botão atual. Só deve ser usado quando a identidade muda de fato
+  // (logout / troca de conta), nunca em uma reavaliação de estado.
+  function resetGoogleButton() {
+    googleButtonMounted = false;
+
+    const slot = document.getElementById('googleSignInButton');
+    if (slot) slot.innerHTML = '';
+  }
+
   function renderGoogleButtonWhenReady() {
     clearTimeout(googleReadyTimer);
 
     // O retry pode disparar depois de o login já ter saído da tela.
     if (!document.getElementById('loginModal').classList.contains('open')) return;
+
+    // Idempotente: remontar a cada chamada trocaria o nó sob o SDK e mataria o
+    // clique que o usuário está prestes a dar.
+    if (isGoogleButtonMounted()) return;
 
     if (!googleClientId) {
       document.getElementById('loginStatus').textContent =
@@ -2705,12 +2729,7 @@
     }
 
     const slot = document.getElementById('googleSignInButton');
-
-    // Trocar o nó força o SDK a montar um botão novo. Reaproveitar o mesmo
-    // container depois de um logout deixa o botão desenhado mas inerte: ele
-    // exibe "Continuar como <nome>" e o clique nunca chega ao callback.
-    slot.replaceWith(slot.cloneNode(false));
-    const fresh = document.getElementById('googleSignInButton');
+    slot.innerHTML = '';
 
     google.accounts.id.initialize({
       client_id: googleClientId,
@@ -2719,7 +2738,7 @@
       cancel_on_tap_outside: false
     });
 
-    google.accounts.id.renderButton(fresh, {
+    google.accounts.id.renderButton(slot, {
       theme: 'filled_black',
       size: 'large',
       type: 'standard',
@@ -2728,6 +2747,8 @@
       logo_alignment: 'left',
       width: 320
     });
+
+    googleButtonMounted = true;
   }
 
   async function handleGoogleCredential(response) {
@@ -3314,6 +3335,9 @@
 
     // Sem isso o Google reentra sozinho com a mesma conta.
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch (_) {}
+
+    // A identidade mudou de fato: o botão atual não serve mais.
+    resetGoogleButton();
 
     // Recarrega em vez de só reaplicar o estado. O SDK do Google guarda a
     // sessão anterior em memória, e reusar a instância depois do logout produz
