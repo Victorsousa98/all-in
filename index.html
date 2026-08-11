@@ -2130,6 +2130,21 @@
       text-align:center;
       padding-top:28px!important;
     }
+    .login-retry{
+      width:100%;
+      margin-top:10px;
+      min-height:44px;
+      border:0;
+      background:transparent;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+      border-radius:14px;
+    }
+    .login-retry:hover{
+      color:var(--text);
+      background:var(--surface);
+    }
     .login-logo{
       width:64px;height:64px;margin:0 auto 18px;
       display:grid;place-items:center;
@@ -2379,6 +2394,10 @@
 
       <div id="googleSignInButton" class="google-signin-slot"></div>
       <div id="loginStatus" class="login-status"></div>
+
+      <button class="login-retry" onclick="location.reload()">
+        O botão do Google não respondeu? Recarregar
+      </button>
     </div>
   </div>
 
@@ -2663,11 +2682,9 @@
   function hideLogin() {
     document.getElementById('loginModal').classList.remove('open');
 
-    // O retry do botão do Google fica reagendando a cada 250ms enquanto o SDK
-    // não carrega. Sem cancelar aqui, ele dispara depois do login e pode
-    // reexibir o One Tap por cima do onboarding, engolindo os cliques.
+    // O retry reagenda a cada 250ms enquanto o SDK não carrega; sem cancelar,
+    // ele continuaria rodando depois que o login já saiu da tela.
     clearTimeout(googleReadyTimer);
-    try { window.google?.accounts?.id?.cancel(); } catch (_) {}
   }
 
   function renderGoogleButtonWhenReady() {
@@ -2688,7 +2705,12 @@
     }
 
     const slot = document.getElementById('googleSignInButton');
-    slot.innerHTML = '';
+
+    // Trocar o nó força o SDK a montar um botão novo. Reaproveitar o mesmo
+    // container depois de um logout deixa o botão desenhado mas inerte: ele
+    // exibe "Continuar como <nome>" e o clique nunca chega ao callback.
+    slot.replaceWith(slot.cloneNode(false));
+    const fresh = document.getElementById('googleSignInButton');
 
     google.accounts.id.initialize({
       client_id: googleClientId,
@@ -2697,7 +2719,7 @@
       cancel_on_tap_outside: false
     });
 
-    google.accounts.id.renderButton(slot, {
+    google.accounts.id.renderButton(fresh, {
       theme: 'filled_black',
       size: 'large',
       type: 'standard',
@@ -2839,9 +2861,8 @@
     const newName = document.getElementById('identityNewName');
     if (!newName.value) newName.value = u.googleName || '';
 
-    // Já autenticado: o One Tap não tem mais o que fazer e só atrapalharia.
+    // Já autenticado: o retry do botão de login não tem mais o que fazer.
     clearTimeout(googleReadyTimer);
-    try { window.google?.accounts?.id?.cancel(); } catch (_) {}
 
     modal.classList.add('open');
   }
@@ -3294,13 +3315,11 @@
     // Sem isso o Google reentra sozinho com a mesma conta.
     try { window.google?.accounts?.id?.disableAutoSelect(); } catch (_) {}
 
-    // Invalida carregamentos em voo para o onboarding não reabrir após o logout.
-    authRequestId++;
-    auth = { loading: false, authenticated: false, onboardingRequired: false };
-    resetState();
-    renderAll();
-    applyAuthState();
-    showView('dashboard');
+    // Recarrega em vez de só reaplicar o estado. O SDK do Google guarda a
+    // sessão anterior em memória, e reusar a instância depois do logout produz
+    // um botão inerte: aparece "Continuar como <nome>" mas o clique não
+    // dispara o callback. Recarregar é o único reset confiável.
+    location.reload();
   }
 
   function showView(name) {
