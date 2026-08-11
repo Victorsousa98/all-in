@@ -2612,6 +2612,12 @@
 
     gate.hidden = !auth.loading;
 
+    // Login e onboarding cobrem a tela inteira. Qualquer confirmação aberta
+    // ficaria com o backdrop por cima, engolindo os cliques.
+    if (auth.loading || !auth.authenticated || auth.onboardingRequired) {
+      closeAllConfirmModals();
+    }
+
     if (auth.loading) {
       hideLogin();
       closeIdentityModal();
@@ -2626,6 +2632,11 @@
 
     hideLogin();
     renderIdentityGate();
+  }
+
+  function closeAllConfirmModals() {
+    document.querySelectorAll('.confirm-modal.open')
+      .forEach(m => m.classList.remove('open'));
   }
 
   function resetState() {
@@ -3232,14 +3243,18 @@
     btn.textContent = 'Desvinculando...';
 
     try {
-      // O backend devolve o app-data já sem o vínculo: o onboarding abre sozinho.
-      applyAppData(await request('/api/unlink-player', {
+      const data = await request('/api/unlink-player', {
         method: 'POST',
         body: JSON.stringify({})
-      }));
+      });
 
+      // Fecha a confirmação antes de abrir o onboarding: senão o backdrop dela
+      // continua sobre a tela e engole os cliques do "Vincular minha conta".
       closeUnlinkPlayer();
       showView('dashboard');
+
+      // O backend devolve o app-data já sem o vínculo: o onboarding abre sozinho.
+      applyAppData(data);
       toast('Jogador desvinculado.');
     } catch (err) {
       showError(err);
