@@ -2162,6 +2162,11 @@
       color:var(--muted);
       font-size:12px;
     }
+    /* O onboarding precisa ficar acima do One Tap do Google, que se injeta no
+       final do body com z-index próprio e capturaria os cliques do formulário. */
+    .identity-modal#identityModal{
+      z-index:2147483000;
+    }
     .identity-modal#loginModal{
       z-index:250;
     }
@@ -2657,10 +2662,19 @@
 
   function hideLogin() {
     document.getElementById('loginModal').classList.remove('open');
+
+    // O retry do botão do Google fica reagendando a cada 250ms enquanto o SDK
+    // não carrega. Sem cancelar aqui, ele dispara depois do login e pode
+    // reexibir o One Tap por cima do onboarding, engolindo os cliques.
+    clearTimeout(googleReadyTimer);
+    try { window.google?.accounts?.id?.cancel(); } catch (_) {}
   }
 
   function renderGoogleButtonWhenReady() {
     clearTimeout(googleReadyTimer);
+
+    // O retry pode disparar depois de o login já ter saído da tela.
+    if (!document.getElementById('loginModal').classList.contains('open')) return;
 
     if (!googleClientId) {
       document.getElementById('loginStatus').textContent =
@@ -2824,6 +2838,10 @@
 
     const newName = document.getElementById('identityNewName');
     if (!newName.value) newName.value = u.googleName || '';
+
+    // Já autenticado: o One Tap não tem mais o que fazer e só atrapalharia.
+    clearTimeout(googleReadyTimer);
+    try { window.google?.accounts?.id?.cancel(); } catch (_) {}
 
     modal.classList.add('open');
   }
