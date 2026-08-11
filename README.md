@@ -69,15 +69,41 @@ Planilhas criadas antes das colunas K/L precisam de um backfill único:
 ```bash
 node scripts/backfill-tournament-ids.js --dry-run   # relatório, não escreve
 node scripts/backfill-tournament-ids.js --apply     # executa
+node scripts/backfill-tournament-ids.js --verify    # audita, não escreve
 ```
 
 O script resolve cada nome em `Vencedor`/`Participantes` para o ID do jogador
-correspondente. Se algum nome não resolver, ele aborta sem escrever nada e lista
-os órfãos com sugestão de correção. Corrija a grafia em `Torneios` ou cadastre o
-jogador em `Jogadores` (pode ficar com `Ativo=false`) e rode de novo.
+correspondente. Ele aborta sem escrever nada se encontrar qualquer problema, e
+o relatório traz linha, torneio, campo, valor e motivo:
 
-Rodar duas vezes é seguro: linhas já migradas são ignoradas. Faça uma cópia da
-planilha antes de usar `--apply`.
+| Categoria | Significado | Como corrigir |
+|---|---|---|
+| `INEXISTENTE` | nome não existe em `Jogadores` | corrija a grafia em `Torneios`, ou cadastre o jogador (pode ficar com `Ativo=false`) |
+| `AMBIGUO` | dois jogadores têm o mesmo nome | renomeie um deles em `Jogadores`, ou preencha K/L dessa linha à mão |
+| `ID_INEXISTENTE` | K/L referenciam um ID que não existe | corrija ou limpe as duas colunas para remigrar |
+| `INCONSISTENTE` | migração parcial (só K ou só L), ID repetido, ou vencedor fora dos participantes | corrija na planilha |
+
+Nomes ambíguos nunca são resolvidos escolhendo um jogador arbitrário — nem no
+script, nem em tempo de execução.
+
+Rodar duas vezes é seguro: linhas já migradas são ignoradas (mas continuam
+sendo validadas). Faça uma cópia da planilha antes de usar `--apply`.
+
+`--verify` audita 100% das linhas sem escrever nada e sai com código diferente
+de zero se houver qualquer pendência. O fallback por nome em `lib/data.js` só
+deve ser removido quando esse modo reportar cobertura total.
+
+### Rollback
+
+As colunas A:J nunca são alteradas pelo backfill, e o código anterior lê apenas
+`Torneios!A2:J` — então voltar para uma versão antiga continua funcionando mesmo
+com K/L preenchidos.
+
+Uma ressalva: depois da migração, renomear um jogador passa a alterar somente a
+aba `Jogadores`, e `Vencedor`/`Participantes` viram um snapshot histórico do nome
+na data da partida. Por isso, um rollback feito **após uma renomeação** exibiria
+o nome antigo no ranking e no histórico daquelas partidas, separando-o do nome
+novo. Antes da primeira renomeação pós-migração, o rollback é transparente.
 
 ## 3. Variáveis da Vercel
 
